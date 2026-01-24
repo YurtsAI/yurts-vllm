@@ -51,3 +51,49 @@ The edges of the build graph represent:
   > ```
   >
   > (To run it for a different file, you can pass in a different argument to the flag `--filename`.)
+
+## Build Arguments
+
+The Dockerfile supports several build arguments for customization, particularly for hermetic builds and mirror configurations.
+
+### Python Installation
+
+vLLM uses [python-build-standalone](https://github.com/indygreg/python-build-standalone) for Python installation, which provides hermetic builds and better control over Python versions.
+
+The following build arguments control Python installation:
+
+- `PYTHON_BUILD_STANDALONE_MIRROR_URL`: Mirror URL for python-build-standalone releases (default: `https://github.com/astral-sh/python-build-standalone/releases/download`)
+- `PYTHON_BUILD_STANDALONE_VERSION`: Release date of python-build-standalone (default: `20260114`)
+- `PYTHON_INSTALL_DIR`: Installation directory for Python (default: `/opt/python`)
+
+**Note**: Currently only Python 3.12.12 is supported (hardcoded).
+
+#### Examples
+
+Use a custom mirror (e.g., for air-gapped environments):
+
+```bash
+docker build \
+  --build-arg PYTHON_BUILD_STANDALONE_MIRROR_URL="https://internal-mirror.example.com/python" \
+  -f docker/Dockerfile .
+```
+
+Use a different python-build-standalone release:
+
+```bash
+docker build \
+  --build-arg PYTHON_BUILD_STANDALONE_VERSION=20250120 \
+  -f docker/Dockerfile .
+```
+
+Use a custom installation directory:
+
+```bash
+docker build \
+  --build-arg PYTHON_INSTALL_DIR=/usr/local/python \
+  -f docker/Dockerfile .
+```
+
+### Other Build Arguments
+
+See the Dockerfile for additional build arguments related to PyTorch indexes, pip configuration, and CUDA settings.

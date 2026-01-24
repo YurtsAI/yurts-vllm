@@ -18,12 +18,13 @@ ARG BUILD_BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-devel-ubuntu20.04
 # TODO: Restore to base image after FlashInfer AOT wheel fixed
 ARG FINAL_BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
 
-# By parameterizing the Deadsnakes repository URL, we allow third-party to use
-# their own mirror. When doing so, we don't benefit from the transparent
-# installation of the GPG key of the PPA, as done by add-apt-repository, so we
-# also need a URL for the GPG key.
-ARG DEADSNAKES_MIRROR_URL
-ARG DEADSNAKES_GPGKEY_URL
+# By parameterizing the python-build-standalone mirror URL, we allow third-party
+# to use their own mirror. This provides hermetic builds and better control over
+# Python versions. The version parameter corresponds to the release date.
+# Repository: https://github.com/astral-sh/python-build-standalone
+ARG PYTHON_BUILD_STANDALONE_MIRROR_URL="https://github.com/astral-sh/python-build-standalone/releases/download"
+ARG PYTHON_BUILD_STANDALONE_VERSION="20260114"
+ARG PYTHON_INSTALL_DIR="/opt/python"
 
 # The PyPA get-pip.py script is a self contained script+zip file, that provides
 # both the installer script and the pip base85-encoded zip archive. This allows
@@ -75,35 +76,72 @@ ARG TARGETPLATFORM
 ARG INSTALL_KV_CONNECTORS=false
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG DEADSNAKES_MIRROR_URL
-ARG DEADSNAKES_GPGKEY_URL
-ARG GET_PIP_URL
+ARG PYTHON_BUILD_STANDALONE_MIRROR_URL
+ARG PYTHON_BUILD_STANDALONE_VERSION
+ARG PYTHON_INSTALL_DIR
 
-# Install Python and other dependencies
+# Install base dependencies
 RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && echo 'tzdata tzdata/Zones/America select Los_Angeles' | debconf-set-selections \
     && apt-get update -y \
-    && apt-get install -y ccache software-properties-common git curl sudo \
-    && if [ ! -z ${DEADSNAKES_MIRROR_URL} ] ; then \
-        if [ ! -z "${DEADSNAKES_GPGKEY_URL}" ] ; then \
-            mkdir -p -m 0755 /etc/apt/keyrings ; \
-            curl -L ${DEADSNAKES_GPGKEY_URL} | gpg --dearmor > /etc/apt/keyrings/deadsnakes.gpg ; \
-            sudo chmod 644 /etc/apt/keyrings/deadsnakes.gpg ; \
-            echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] ${DEADSNAKES_MIRROR_URL} $(lsb_release -cs) main" > /etc/apt/sources.list.d/deadsnakes.list ; \
-        fi ; \
-    else \
-        for i in 1 2 3; do \
-            add-apt-repository -y ppa:deadsnakes/ppa && break || \
-            { echo "Attempt $i failed, retrying in 5s..."; sleep 5; }; \
-        done ; \
-    fi \
-    && apt-get update -y \
-    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1 \
-    && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
-    && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
-    && curl -sS ${GET_PIP_URL} | python${PYTHON_VERSION} \
-    && python3 --version && python3 -m pip --version
+    && apt-get install -y ccache git curl sudo
+
+# Install Python 3.12 from python-build-standalone
+RUN --mount=type=cache,target=/tmp/python-downloads <<'PYTHON_INSTALL'
+#!/bin/bash
+set -e
+
+# Hardcoded Python version (only 3.12 supported)
+PBS_FULL_VERSION="3.12.12"
+
+# Determine platform
+case "${TARGETPLATFORM}" in
+    "linux/amd64")
+        PBS_PLATFORM="x86_64-unknown-linux-gnu"
+        ;;
+    "linux/arm64")
+        PBS_PLATFORM="aarch64-unknown-linux-gnu"
+        ;;
+    *)
+        echo "Unsupported platform: ${TARGETPLATFORM}"
+        exit 1
+        ;;
+esac
+
+# Build download URL
+PBS_VARIANT="install_only"
+PBS_FILENAME="cpython-${PBS_FULL_VERSION}+${PYTHON_BUILD_STANDALONE_VERSION}-${PBS_PLATFORM}-${PBS_VARIANT}.tar.gz"
+PBS_URL="${PYTHON_BUILD_STANDALONE_MIRROR_URL}/${PYTHON_BUILD_STANDALONE_VERSION}/${PBS_FILENAME}"
+
+# Download with retry logic
+echo "Downloading Python ${PBS_FULL_VERSION} from ${PBS_URL}"
+for i in 1 2 3; do
+    curl -L -o /tmp/python.tar.gz "${PBS_URL}" && break || \
+    { echo "Attempt $i failed, retrying in 5s..."; sleep 5; }
+done
+
+# Extract to installation directory
+mkdir -p "${PYTHON_INSTALL_DIR}"
+tar -xzf /tmp/python.tar.gz -C "${PYTHON_INSTALL_DIR}" --strip-components=1
+rm /tmp/python.tar.gz
+
+# Set up symlinks for system-wide access
+ln -sf "${PYTHON_INSTALL_DIR}/bin/python3.12" /usr/bin/python3
+ln -sf "${PYTHON_INSTALL_DIR}/bin/python3.12" /usr/bin/python3.12
+ln -sf "${PYTHON_INSTALL_DIR}/bin/python3.12-config" /usr/bin/python3-config
+
+# Update PATH in /etc/environment for non-interactive shells
+echo "export PATH=\"${PYTHON_INSTALL_DIR}/bin:\$PATH\"" >> /etc/environment
+
+# Verify installation
+python3 --version
+
+# Python-build-standalone includes pip, verify it works
+python3 -m pip --version
+PYTHON_INSTALL
+
+# Add to PATH for this stage
+ENV PATH="${PYTHON_INSTALL_DIR}/bin:${PATH}"
 
 ARG PIP_INDEX_URL UV_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL UV_EXTRA_INDEX_URL
@@ -189,16 +227,14 @@ ENV NVCC_THREADS=$nvcc_threads
 
 ARG USE_SCCACHE
 ARG SCCACHE_DOWNLOAD_URL=https://github.com/mozilla/sccache/releases/download/v0.8.1/sccache-v0.8.1-x86_64-unknown-linux-musl.tar.gz
-ARG SCCACHE_ENDPOINT
-ARG SCCACHE_BUCKET_NAME=vllm-build-sccache
-ARG SCCACHE_REGION_NAME=us-west-2
-ARG SCCACHE_S3_NO_CREDENTIALS=0
+ARG SCCACHE_DIR=/root/.cache/sccache
 
 # Flag to control whether to use pre-built vLLM wheels
 ARG VLLM_USE_PRECOMPILED=""
 
 # if USE_SCCACHE is set, use sccache to speed up compilation
 RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/sccache \
     --mount=type=bind,source=.git,target=.git \
     if [ "$USE_SCCACHE" = "1" ]; then \
         echo "Installing sccache..." \
@@ -206,10 +242,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         && tar -xzf sccache.tar.gz \
         && sudo mv sccache-v0.8.1-x86_64-unknown-linux-musl/sccache /usr/bin/sccache \
         && rm -rf sccache.tar.gz sccache-v0.8.1-x86_64-unknown-linux-musl \
-        && if [ ! -z ${SCCACHE_ENDPOINT} ] ; then export SCCACHE_ENDPOINT=${SCCACHE_ENDPOINT} ; fi \
-        && export SCCACHE_BUCKET=${SCCACHE_BUCKET_NAME} \
-        && export SCCACHE_REGION=${SCCACHE_REGION_NAME} \
-        && export SCCACHE_S3_NO_CREDENTIALS=${SCCACHE_S3_NO_CREDENTIALS} \
+        && export SCCACHE_DIR=${SCCACHE_DIR} \
         && export SCCACHE_IDLE_TIMEOUT=0 \
         && export CMAKE_BUILD_TYPE=Release \
         && export VLLM_USE_PRECOMPILED="${VLLM_USE_PRECOMPILED}" \
@@ -281,39 +314,76 @@ ARG TARGETPLATFORM
 
 SHELL ["/bin/bash", "-c"]
 
-ARG DEADSNAKES_MIRROR_URL
-ARG DEADSNAKES_GPGKEY_URL
-ARG GET_PIP_URL
+ARG PYTHON_BUILD_STANDALONE_MIRROR_URL
+ARG PYTHON_BUILD_STANDALONE_VERSION
+ARG PYTHON_INSTALL_DIR
 
 RUN PYTHON_VERSION_STR=$(echo ${PYTHON_VERSION} | sed 's/\.//g') && \
     echo "export PYTHON_VERSION_STR=${PYTHON_VERSION_STR}" >> /etc/environment
 
-# Install Python and other dependencies
+# Install base dependencies
 RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && echo 'tzdata tzdata/Zones/America select Los_Angeles' | debconf-set-selections \
     && apt-get update -y \
-    && apt-get install -y ccache software-properties-common git curl wget sudo vim python3-pip \
-    && apt-get install -y ffmpeg libsm6 libxext6 libgl1 \
-    && if [ ! -z ${DEADSNAKES_MIRROR_URL} ] ; then \
-        if [ ! -z "${DEADSNAKES_GPGKEY_URL}" ] ; then \
-            mkdir -p -m 0755 /etc/apt/keyrings ; \
-            curl -L ${DEADSNAKES_GPGKEY_URL} | gpg --dearmor > /etc/apt/keyrings/deadsnakes.gpg ; \
-            sudo chmod 644 /etc/apt/keyrings/deadsnakes.gpg ; \
-            echo "deb [signed-by=/etc/apt/keyrings/deadsnakes.gpg] ${DEADSNAKES_MIRROR_URL} $(lsb_release -cs) main" > /etc/apt/sources.list.d/deadsnakes.list ; \
-        fi ; \
-    else \
-        for i in 1 2 3; do \
-            add-apt-repository -y ppa:deadsnakes/ppa && break || \
-            { echo "Attempt $i failed, retrying in 5s..."; sleep 5; }; \
-        done ; \
-    fi \
-    && apt-get update -y \
-    && apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv libibverbs-dev \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1 \
-    && update-alternatives --set python3 /usr/bin/python${PYTHON_VERSION} \
-    && ln -sf /usr/bin/python${PYTHON_VERSION}-config /usr/bin/python3-config \
-    && curl -sS ${GET_PIP_URL} | python${PYTHON_VERSION} \
-    && python3 --version && python3 -m pip --version
+    && apt-get install -y ccache git curl wget sudo vim \
+    && apt-get install -y ffmpeg libsm6 libxext6 libgl1 libibverbs-dev
+
+# Install Python 3.12 from python-build-standalone
+RUN --mount=type=cache,target=/tmp/python-downloads <<'PYTHON_INSTALL'
+#!/bin/bash
+set -e
+
+# Hardcoded Python version (only 3.12 supported)
+PBS_FULL_VERSION="3.12.12"
+
+# Determine platform
+case "${TARGETPLATFORM}" in
+    "linux/amd64")
+        PBS_PLATFORM="x86_64-unknown-linux-gnu"
+        ;;
+    "linux/arm64")
+        PBS_PLATFORM="aarch64-unknown-linux-gnu"
+        ;;
+    *)
+        echo "Unsupported platform: ${TARGETPLATFORM}"
+        exit 1
+        ;;
+esac
+
+# Build download URL
+PBS_VARIANT="install_only"
+PBS_FILENAME="cpython-${PBS_FULL_VERSION}+${PYTHON_BUILD_STANDALONE_VERSION}-${PBS_PLATFORM}-${PBS_VARIANT}.tar.gz"
+PBS_URL="${PYTHON_BUILD_STANDALONE_MIRROR_URL}/${PYTHON_BUILD_STANDALONE_VERSION}/${PBS_FILENAME}"
+
+# Download with retry logic
+echo "Downloading Python ${PBS_FULL_VERSION} from ${PBS_URL}"
+for i in 1 2 3; do
+    curl -L -o /tmp/python.tar.gz "${PBS_URL}" && break || \
+    { echo "Attempt $i failed, retrying in 5s..."; sleep 5; }
+done
+
+# Extract to installation directory
+mkdir -p "${PYTHON_INSTALL_DIR}"
+tar -xzf /tmp/python.tar.gz -C "${PYTHON_INSTALL_DIR}" --strip-components=1
+rm /tmp/python.tar.gz
+
+# Set up symlinks for system-wide access
+ln -sf "${PYTHON_INSTALL_DIR}/bin/python3.12" /usr/bin/python3
+ln -sf "${PYTHON_INSTALL_DIR}/bin/python3.12" /usr/bin/python3.12
+ln -sf "${PYTHON_INSTALL_DIR}/bin/python3.12-config" /usr/bin/python3-config
+
+# Update PATH in /etc/environment for non-interactive shells
+echo "export PATH=\"${PYTHON_INSTALL_DIR}/bin:\$PATH\"" >> /etc/environment
+
+# Verify installation
+python3 --version
+
+# Python-build-standalone includes pip, verify it works
+python3 -m pip --version
+PYTHON_INSTALL
+
+# Add to PATH for this stage
+ENV PATH="${PYTHON_INSTALL_DIR}/bin:${PATH}"
 
 ARG PIP_INDEX_URL UV_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL UV_EXTRA_INDEX_URL
