@@ -303,6 +303,10 @@ class ModelConfig:
     """Allowing API requests to read local images or videos from directories
     specified by the server file system. This is a security risk. Should only
     be enabled in trusted environments."""
+    allowed_media_domains: list[str] = field(default_factory=list)
+    """List of allowed domains for fetching media over HTTP(S). If empty,
+    all domains are allowed. This is a security feature to prevent SSRF attacks.
+    Example: ['example.com', 'trusted-cdn.com']"""
     revision: Optional[str] = None
     """The specific model version to use. It can be a branch name, a tag name,
     or a commit id. If unspecified, will use the default version."""

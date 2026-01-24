@@ -693,6 +693,7 @@ class MultiModalContentParser(BaseMultiModalContentParser):
         self._connector = MediaConnector(
             media_io_kwargs=self._tracker._model_config.media_io_kwargs,
             allowed_local_media_path=tracker.allowed_local_media_path,
+            allowed_media_domains=tracker.model_config.allowed_media_domains,
         )
 
     def parse_image(self, image_url: str) -> None:
@@ -748,7 +749,8 @@ class AsyncMultiModalContentParser(BaseMultiModalContentParser):
         self._tracker = tracker
         self._connector = MediaConnector(
             media_io_kwargs=self._tracker._model_config.media_io_kwargs,
-            allowed_local_media_path=tracker.allowed_local_media_path
+            allowed_local_media_path=tracker.allowed_local_media_path,
+            allowed_media_domains=tracker.model_config.allowed_media_domains,
         )
 
     def parse_image(self, image_url: str) -> None:

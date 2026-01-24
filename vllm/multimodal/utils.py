@@ -52,16 +52,20 @@ class MediaConnector:
         connection: HTTPConnection = global_http_connection,
         *,
         allowed_local_media_path: str = "",
+        allowed_media_domains: Optional[list[str]] = None,
     ) -> None:
         """
         Args:
-            media_io_kwargs: Additional args passed to process media 
-                             inputs, keyed by modalities. For example, 
-                             to set num_frames for video, set 
+            media_io_kwargs: Additional args passed to process media
+                             inputs, keyed by modalities. For example,
+                             to set num_frames for video, set
                              `--media-io-kwargs '{"video":{"num_frames":40}}'`
             connection: HTTP connection client to download media contents.
             allowed_local_media_path: A local directory to load media files
                                       from.
+            allowed_media_domains: List of allowed domains for fetching media
+                                   over HTTP(S). If None or empty, all domains
+                                   are allowed.
         """
         super().__init__()
 
@@ -84,6 +88,28 @@ class MediaConnector:
             allowed_local_media_path_ = None
 
         self.allowed_local_media_path = allowed_local_media_path_
+
+        self.allowed_media_domains = (
+            set(allowed_media_domains) if allowed_media_domains else None
+        )
+
+    def _assert_url_in_allowed_media_domains(self, url: str) -> None:
+        """Validate that URL's domain is in the allowed domains list."""
+        if self.allowed_media_domains is None:
+            return  # No restrictions
+
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+
+        if hostname is None:
+            raise ValueError(f"Cannot determine hostname from URL: {url}")
+
+        if hostname not in self.allowed_media_domains:
+            raise ValueError(
+                f"Media URL domain '{hostname}' is not in the allowed domains. "
+                f"Allowed domains: {sorted(self.allowed_media_domains)}"
+            )
 
     def _load_data_url(
         self,
@@ -127,8 +153,19 @@ class MediaConnector:
         url_spec = urlparse(url)
 
         if url_spec.scheme.startswith("http"):
+            # Validate domain if restrictions are configured
+            self._assert_url_in_allowed_media_domains(url)
+
+            # Get redirect preference from environment
+            import vllm.envs as envs
+            allow_redirects = envs.VLLM_MEDIA_URL_ALLOW_REDIRECTS
+
             connection = self.connection
-            data = connection.get_bytes(url, timeout=fetch_timeout)
+            data = connection.get_bytes(
+                url,
+                timeout=fetch_timeout,
+                allow_redirects=allow_redirects
+            )
 
             return media_io.load_bytes(data)
 
@@ -152,8 +189,19 @@ class MediaConnector:
         loop = asyncio.get_running_loop()
 
         if url_spec.scheme.startswith("http"):
+            # Validate domain if restrictions are configured
+            self._assert_url_in_allowed_media_domains(url)
+
+            # Get redirect preference from environment
+            import vllm.envs as envs
+            allow_redirects = envs.VLLM_MEDIA_URL_ALLOW_REDIRECTS
+
             connection = self.connection
-            data = await connection.async_get_bytes(url, timeout=fetch_timeout)
+            data = await connection.async_get_bytes(
+                url,
+                timeout=fetch_timeout,
+                allow_redirects=allow_redirects
+            )
             future = loop.run_in_executor(global_thread_pool,
                                           media_io.load_bytes, data)
             return await future

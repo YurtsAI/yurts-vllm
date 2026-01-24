@@ -592,6 +592,12 @@ environment_variables: dict[str, Callable[[], Any]] = {
     "VLLM_VIDEO_LOADER_BACKEND":
     lambda: os.getenv("VLLM_VIDEO_LOADER_BACKEND", "opencv"),
 
+    # Controls whether HTTP redirects are allowed when fetching media URLs.
+    # Disabling redirects prevents bypassing media domain restrictions.
+    # Default is False (redirects disabled) for security.
+    "VLLM_MEDIA_URL_ALLOW_REDIRECTS":
+    lambda: os.environ.get("VLLM_MEDIA_URL_ALLOW_REDIRECTS", "0") == "1",
+
     # [DEPRECATED] Cache size (in GiB per process) for multimodal input cache
     # Default is 4 GiB per API process + 4 GiB per engine core process
     "VLLM_MM_INPUT_CACHE_GIB":

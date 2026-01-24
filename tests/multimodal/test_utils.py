@@ -463,3 +463,76 @@ def run_dp_sharded_vision_model_vs_direct(local_rank: int, world_size: int,
 
     # Check that the outputs are close (they should be identical)
     assert torch.allclose(direct_output, sharded_output, rtol=1e-5, atol=1e-5)
+
+
+def test_domain_restriction():
+    """Test that domain restrictions work correctly."""
+    # Test that allowed domains work
+    connector = MediaConnector(allowed_media_domains=["upload.wikimedia.org"])
+
+    # Should succeed - domain is in allowed list
+    connector._assert_url_in_allowed_media_domains(
+        "https://upload.wikimedia.org/image.jpg")
+
+    # Should fail - domain not in allowed list
+    with pytest.raises(ValueError, match="not in the allowed domains"):
+        connector._assert_url_in_allowed_media_domains(
+            "https://evil.com/image.jpg")
+
+    # Should fail - different subdomain
+    with pytest.raises(ValueError, match="not in the allowed domains"):
+        connector._assert_url_in_allowed_media_domains(
+            "https://subdomain.wikimedia.org/image.jpg")
+
+
+def test_no_domain_restriction():
+    """Test that None/empty list means no restrictions."""
+    # Test with None (default)
+    connector = MediaConnector(allowed_media_domains=None)
+    # Should succeed - no restrictions
+    connector._assert_url_in_allowed_media_domains(
+        "https://any-domain.com/image.jpg")
+
+    # Test with empty list
+    connector = MediaConnector(allowed_media_domains=[])
+    # Should succeed - empty list means no restrictions
+    connector._assert_url_in_allowed_media_domains(
+        "https://another-domain.com/image.jpg")
+
+
+def test_domain_validation_invalid_url():
+    """Test domain validation with invalid URLs."""
+    connector = MediaConnector(allowed_media_domains=["example.com"])
+
+    # Test with URL that has no hostname
+    with pytest.raises(ValueError, match="Cannot determine hostname"):
+        connector._assert_url_in_allowed_media_domains("not-a-valid-url")
+
+
+@pytest.mark.asyncio
+async def test_domain_restriction_with_fetch():
+    """Test that domain restrictions are enforced during fetch."""
+    # Use a real URL from the test list
+    allowed_url = TEST_IMAGE_URLS[0]
+    disallowed_url = "https://disallowed-domain.example.com/image.jpg"
+
+    # Extract domain from allowed URL
+    from urllib.parse import urlparse
+    allowed_domain = urlparse(allowed_url).hostname
+
+    connector = MediaConnector(allowed_media_domains=[allowed_domain])
+
+    # Should succeed with allowed domain
+    image = connector.fetch_image(allowed_url)
+    assert image is not None
+
+    # Should also work async
+    image_async = await connector.fetch_image_async(allowed_url)
+    assert image_async is not None
+
+    # Disallowed domain should raise ValueError before attempting HTTP request
+    with pytest.raises(ValueError, match="not in the allowed domains"):
+        connector.fetch_image(disallowed_url)
+
+    with pytest.raises(ValueError, match="not in the allowed domains"):
+        await connector.fetch_image_async(disallowed_url)
