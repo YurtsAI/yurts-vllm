@@ -527,6 +527,7 @@ def get_vllm_version() -> str:
         if envs.VLLM_TARGET_DEVICE == "empty":
             version += f"{sep}empty"
     elif _is_cuda():
+        """
         if envs.VLLM_USE_PRECOMPILED:
             version += f"{sep}precompiled"
         else:
@@ -536,6 +537,7 @@ def get_vllm_version() -> str:
                 # skip this for source tarball, required for pypi
                 if "sdist" not in sys.argv:
                     version += f"{sep}cu{cuda_version_str}"
+        """
     elif _is_hip():
         # Get the Rocm Version
         rocm_version = get_rocm_version() or torch.version.hip
