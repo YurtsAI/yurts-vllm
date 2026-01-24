@@ -277,7 +277,7 @@ class EngineArgs:
     tokenizer_mode: TokenizerMode = ModelConfig.tokenizer_mode
     trust_remote_code: bool = ModelConfig.trust_remote_code
     allowed_local_media_path: str = ModelConfig.allowed_local_media_path
-    allowed_media_domains: list[str] = ModelConfig.allowed_media_domains
+    allowed_media_domains: Optional[list[str]] = ModelConfig.allowed_media_domains
     download_dir: Optional[str] = LoadConfig.download_dir
     load_format: Union[str, LoadFormats] = LoadConfig.load_format
     config_format: str = ModelConfig.config_format
@@ -344,6 +344,7 @@ class EngineArgs:
     disable_custom_all_reduce: bool = ParallelConfig.disable_custom_all_reduce
     limit_mm_per_prompt: dict[str, int] = \
         get_field(MultiModalConfig, "limit_per_prompt")
+    enable_mm_embeds: bool = MultiModalConfig.enable_mm_embeds
     interleave_mm_strings: bool = MultiModalConfig.interleave_mm_strings
     media_io_kwargs: dict[str, dict[str,
                                     Any]] = get_field(MultiModalConfig,
@@ -719,6 +720,8 @@ class EngineArgs:
         )
         multimodal_group.add_argument("--limit-mm-per-prompt",
                                       **multimodal_kwargs["limit_per_prompt"])
+        multimodal_group.add_argument("--enable-mm-embeds",
+                                      **multimodal_kwargs["enable_mm_embeds"])
         multimodal_group.add_argument("--media-io-kwargs",
                                       **multimodal_kwargs["media_io_kwargs"])
         multimodal_group.add_argument(
@@ -936,6 +939,7 @@ class EngineArgs:
             enable_prompt_embeds=self.enable_prompt_embeds,
             served_model_name=self.served_model_name,
             limit_mm_per_prompt=self.limit_mm_per_prompt,
+            enable_mm_embeds=self.enable_mm_embeds,
             interleave_mm_strings=self.interleave_mm_strings,
             media_io_kwargs=self.media_io_kwargs,
             skip_mm_profiling=self.skip_mm_profiling,

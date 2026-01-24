@@ -704,6 +704,12 @@ class MultiModalContentParser(BaseMultiModalContentParser):
 
     def parse_image_embeds(self,
                            image_embeds: Union[str, dict[str, str]]) -> None:
+        mm_config = self._tracker._model_config.get_multimodal_config()
+        if not mm_config.enable_mm_embeds:
+            raise ValueError(
+                "You must set `--enable-mm-embeds` to input `image_embeds`"
+            )
+
         if isinstance(image_embeds, dict):
             embeds = {
                 k: self._connector.fetch_image_embedding(v)
@@ -761,6 +767,12 @@ class AsyncMultiModalContentParser(BaseMultiModalContentParser):
 
     def parse_image_embeds(self,
                            image_embeds: Union[str, dict[str, str]]) -> None:
+        mm_config = self._tracker._model_config.get_multimodal_config()
+        if not mm_config.enable_mm_embeds:
+            raise ValueError(
+                "You must set `--enable-mm-embeds` to input `image_embeds`"
+            )
+
         future: asyncio.Future[Union[str, dict[str, str]]] = asyncio.Future()
 
         if isinstance(image_embeds, dict):

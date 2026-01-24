@@ -303,8 +303,8 @@ class ModelConfig:
     """Allowing API requests to read local images or videos from directories
     specified by the server file system. This is a security risk. Should only
     be enabled in trusted environments."""
-    allowed_media_domains: list[str] = field(default_factory=list)
-    """List of allowed domains for fetching media over HTTP(S). If empty,
+    allowed_media_domains: Optional[list[str]] = None
+    """List of allowed domains for fetching media over HTTP(S). If None or empty,
     all domains are allowed. This is a security feature to prevent SSRF attacks.
     Example: ['example.com', 'trusted-cdn.com']"""
     revision: Optional[str] = None
@@ -378,8 +378,10 @@ class ModelConfig:
     output will contain token ids."""
     enable_prompt_embeds: bool = False
     """If `True`, enables passing text embeddings as inputs via the
-    `prompt_embeds` key. Note that enabling this will double the time required
-    for graph compilation."""
+    `prompt_embeds` key.
+
+    WARNING: The vLLM engine may crash if incorrect shape of embeddings is passed.
+    Only enable this flag for trusted users!"""
     served_model_name: Optional[Union[str, list[str]]] = None
     """The model name(s) used in the API. If multiple names are provided, the
     server will respond to any of the provided names. The model name in the
@@ -2492,6 +2494,15 @@ class MultiModalConfig:
     For example, to allow up to 16 images and 2 videos per prompt:
     `{"image": 16, "video": 2}`
     """
+
+    enable_mm_embeds: bool = False
+    """If `True`, enables passing multimodal embeddings:
+    for `LLM` class, this refers to tensor inputs under `multi_modal_data`;
+    for the OpenAI-compatible server, this refers to chat messages with content
+    `"type": "*_embeds"`.
+
+    WARNING: The vLLM engine may crash if incorrect shape of embeddings is passed.
+    Only enable this flag for trusted users!"""
 
     media_io_kwargs: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Additional args passed to process media inputs, keyed by modalities.

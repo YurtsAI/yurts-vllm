@@ -32,6 +32,8 @@ def default_image_embeds_server_args() -> list[str]:
         "--enforce-eager",
         "--limit-mm-per-prompt",
         json.dumps({"image": MAXIMUM_IMAGES}),
+        # Required for CVE-2025-62372 security fix
+        "--enable-mm-embeds",
     ]
 
 
