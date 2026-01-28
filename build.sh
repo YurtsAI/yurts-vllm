@@ -3,8 +3,7 @@
 DOCKER_BUILDKIT=1 docker build \
   --platform linux/amd64 \
   --build-arg RUN_WHEEL_CHECK=false \
-  --build-arg VLLM_USE_PRECOMPILED=true \
-  --build-arg max_jobs=16 \
+  --build-arg max_jobs=20 \
   --build-arg CUDA_VERSION=12.8.1 \
   --tag vllm-ci:build-image \
   --target build \
