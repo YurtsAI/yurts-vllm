@@ -1,10 +1,13 @@
 #!/bin/bash
-set -e
+
+set -e -o pipefail
 
 # Configuration
 GITLAB_PROJECT_ID="67960847"
 GITLAB_URL="https://gitlab.com"
 DIST_DIR="artifacts/dist"
+
+REPOSITORY_URL="${GITLAB_URL}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/pypi"
 
 # Check for GITLAB_TOKEN
 if [ -z "$GITLAB_TOKEN" ]; then
@@ -26,27 +29,24 @@ fi
 
 # Install twine if not available
 if ! command -v twine &>/dev/null; then
-  echo "Installing twine..."
-  pip install twine
+  echo "Error: twine not installed..."
+  exit 1
 fi
 
-# GitLab PyPI registry URL using project ID
-REPOSITORY_URL="${GITLAB_URL}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/pypi"
+echo "Publishing most recent wheel to GitLab PyPI registry..."
 
-echo "Publishing wheels to GitLab PyPI registry..."
 echo "Project ID: $GITLAB_PROJECT_ID"
 echo "Repository URL: $REPOSITORY_URL"
-echo "Wheels to publish:"
-ls -lh "$DIST_DIR"/*.whl
 
-# Publish using twine
-twine upload \
-  --repository-url "$REPOSITORY_URL" \
-  --username gitlab-ci-token \
-  --password "$GITLAB_TOKEN" \
-  "$DIST_DIR"/*.whl
+for whl in "$DIST_DIR"/*.whl; do
+  echo "Wheel to publish: $whl"
+  # Publish using twine
+  twine upload \
+    --repository-url "$REPOSITORY_URL" \
+    --username gitlab-ci-token \
+    --password "$GITLAB_TOKEN" \
+    "$whl"
+  break
+done
 
 echo "Successfully published packages to GitLab PyPI registry!"
-echo ""
-echo "To install from this registry, users can run:"
-echo "pip install --index-url https://__token__:YOUR_TOKEN@gitlab.com/api/v4/projects/${GITLAB_PROJECT_ID}/packages/pypi/simple yurts-vllm"

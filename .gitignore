@@ -212,3 +212,4 @@ csrc/moe/marlin_moe_wna16/kernel_*
 ep_kernels_workspace/
 
 uv.lock
+artifacts/
